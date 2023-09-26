@@ -149,6 +149,11 @@
                 "category": "rust-analyzer"
             },
             {
+                "command": "rust-analyzer.viewTraitGraph",
+                "title": "View Trait Graph",
+                "category": "rust-analyzer"
+            },
+            {
                 "command": "rust-analyzer.viewFullCrateGraph",
                 "title": "View Crate Graph (Full)",
                 "category": "rust-analyzer"

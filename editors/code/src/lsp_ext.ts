@@ -52,6 +52,9 @@ export const syntaxTree = new lc.RequestType<SyntaxTreeParams, string, void>(
 export const viewCrateGraph = new lc.RequestType<ViewCrateGraphParams, string, void>(
     "rust-analyzer/viewCrateGraph",
 );
+export const viewTraitGraph = new lc.RequestType<ViewTraitGraphParams, string, void>(
+    "rust-analyzer/viewCrateGraph",
+);
 export const viewFileText = new lc.RequestType<lc.TextDocumentIdentifier, string, void>(
     "rust-analyzer/viewFileText",
 );
@@ -116,6 +119,7 @@ export type SyntaxTreeParams = {
     range: lc.Range | null;
 };
 export type ViewCrateGraphParams = { full: boolean };
+export type ViewTraitGraphParams = { full: boolean };
 export type ViewItemTreeParams = { textDocument: lc.TextDocumentIdentifier };
 
 // experimental extensions

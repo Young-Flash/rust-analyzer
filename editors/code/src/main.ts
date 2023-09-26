@@ -163,6 +163,7 @@ function createCommands(): Record<string, CommandFactory> {
         viewFileText: { enabled: commands.viewFileText },
         viewItemTree: { enabled: commands.viewItemTree },
         viewCrateGraph: { enabled: commands.viewCrateGraph },
+        viewTraitGraph: { enabled: commands.viewTraitGraph },
         viewFullCrateGraph: { enabled: commands.viewFullCrateGraph },
         expandMacro: { enabled: commands.expandMacro },
         run: { enabled: commands.run },
