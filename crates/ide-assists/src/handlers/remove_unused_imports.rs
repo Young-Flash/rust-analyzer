@@ -127,7 +127,7 @@ pub(crate) fn remove_unused_imports(acc: &mut Assists, ctx: &AssistContext<'_>) 
             AssistId("remove_unused_imports", AssistKind::QuickFix),
             "Remove all the unused imports",
             selected_el.text_range(),
-            |builder| {
+            |builder: &mut ide_db::source_change::SourceChangeBuilder| {
                 let unused: Vec<ast::UseTree> = unused.map(|x| builder.make_mut(x)).collect();
                 for node in unused {
                     node.remove_recursive();

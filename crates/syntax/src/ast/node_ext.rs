@@ -366,7 +366,7 @@ impl ast::UseTreeList {
     }
 
     /// Remove the unnecessary braces in current `UseTreeList`
-    pub fn remove_unnecessary_braces(mut self) {
+    pub fn remove_unnecessary_braces(mut self) -> Self {
         let remove_brace_in_use_tree_list = |u: &ast::UseTreeList| {
             let use_tree_count = u.use_trees().count();
             if use_tree_count == 1 {
@@ -389,6 +389,8 @@ impl ast::UseTreeList {
             remove_brace_in_use_tree_list(&parent_use_tree_list);
             self = parent_use_tree_list;
         }
+        
+        self
     }
 }
 

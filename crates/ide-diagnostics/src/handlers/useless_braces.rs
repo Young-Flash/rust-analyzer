@@ -17,7 +17,7 @@ pub(crate) fn useless_braces(
     file_id: FileId,
     node: &SyntaxNode,
 ) -> Option<()> {
-    let use_tree_list = ast::UseTreeList::cast(node.clone())?;
+    let mut use_tree_list = ast::UseTreeList::cast(node.clone())?;
     if let Some((single_use_tree,)) = use_tree_list.use_trees().collect_tuple() {
         // If there is a `self` inside the bracketed `use`, don't show diagnostic.
         if single_use_tree.path()?.segment()?.self_token().is_some() {
@@ -30,25 +30,49 @@ pub(crate) fn useless_braces(
             return Some(());
         }
 
-        let use_range = use_tree_list.syntax().text_range();
-        let to_replace = single_use_tree.syntax().text().to_string();
         let mut edit_builder = TextEdit::builder();
-        edit_builder.delete(use_range);
-        edit_builder.insert(use_range.start(), to_replace);
+        // If the `use` is nested inside another `use`, remove the braces and replace the parent `use` with the nested one.
+
+        // let mut d = use_tree_list.clone_for_update();
+        // while let Some(r) = d.parent_use_tree().parent_use_tree_list()
+        // {   
+        //     let rr = r.to_string();
+        //     let dd = d.to_string();
+            while let Some(parent_use_tree_list) = use_tree_list.parent_use_tree().parent_use_tree_list() {
+                let a = use_tree_list.to_string();
+                if parent_use_tree_list.use_trees().count() == 1 {
+                    use_tree_list = parent_use_tree_list;
+                }
+                else {
+                    let use_range = use_tree_list.syntax().text_range();
+                    let to_replace = single_use_tree.syntax().text().to_string();
+                    edit_builder.delete(use_range);
+                    edit_builder.insert(use_range.start(), to_replace);
+                    // break;
+                    use_tree_list = parent_use_tree_list;
+                }
+                let b = use_tree_list.to_string();
+                let b = use_tree_list.to_string();
+            }
+
+            
+            
+        // }
+        
         let edit = edit_builder.finish();
 
         acc.push(
             Diagnostic::new(
                 DiagnosticCode::RustcLint("unused_braces"),
                 "Unnecessary braces in use statement".to_string(),
-                FileRange { file_id, range: use_range },
+                FileRange { file_id, range: use_tree_list.syntax().text_range() },
             )
             .with_main_node(InFile::new(file_id.into(), node.clone()))
             .with_fixes(Some(vec![fix(
                 "remove_braces",
                 "Remove unnecessary braces",
                 SourceChange::from_text_edit(file_id, edit),
-                use_range,
+                use_tree_list.syntax().text_range(),
             )])),
         );
     }
@@ -62,6 +86,22 @@ mod tests {
         tests::{check_diagnostics, check_diagnostics_with_config, check_fix},
         DiagnosticsConfig,
     };
+#[test]
+fn a() {
+    check_fix(
+        r#"
+mod a {}
+mod b {}
+use {{{{a, {{{{c::{b$0}}}}}}}}};
+"#,
+        r#"
+mod a {}
+mod b {}
+use {a, c::b};
+"#,
+    );
+}
+
 
     #[test]
     fn test_check_unnecessary_braces_in_use_statement() {
