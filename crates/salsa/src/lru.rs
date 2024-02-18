@@ -38,6 +38,7 @@ pub(crate) trait LruNode: Sized + Debug {
     fn lru_index(&self) -> &LruIndex;
 }
 
+
 #[derive(Debug)]
 pub(crate) struct LruIndex {
     /// Index in the approprate LRU list, or std::usize::MAX if not a
