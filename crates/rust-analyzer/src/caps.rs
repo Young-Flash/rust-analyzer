@@ -93,7 +93,16 @@ pub fn server_capabilities(config: &Config) -> ServerCapabilities {
                 change_notifications: Some(OneOf::Left(true)),
             }),
             file_operations: Some(WorkspaceFileOperationsServerCapabilities {
-                did_create: None,
+                did_create: Some(FileOperationRegistrationOptions {
+                    filters: vec![FileOperationFilter {
+                        scheme: Some(String::from("file")),
+                        pattern: FileOperationPattern {
+                            glob: String::from("**/*.rs"),
+                            matches: Some(FileOperationPatternKind::File),
+                            options: None,
+                        },
+                    }],
+                }),
                 will_create: None,
                 did_rename: None,
                 will_rename: Some(FileOperationRegistrationOptions {

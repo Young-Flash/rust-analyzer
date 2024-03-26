@@ -1,21 +1,23 @@
 //! This module is responsible for implementing handlers for Language Server
 //! Protocol. This module specifically handles notifications.
 
-use std::ops::Deref;
+use std::{collections::HashMap, ops::Deref};
 
 use itertools::Itertools;
 use lsp_types::{
-    CancelParams, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, WorkDoneProgressCancelParams,
+    ApplyWorkspaceEditParams, CancelParams, DidChangeConfigurationParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, Url,
+    WorkDoneProgressCancelParams, WorkspaceEdit,
 };
 use triomphe::Arc;
 use vfs::{AbsPathBuf, ChangeKind, VfsPath};
 
 use crate::{
     config::Config,
-    global_state::GlobalState,
-    lsp::{from_proto, utils::apply_document_changes},
+    global_state::{file_id_to_url, url_to_file_id, GlobalState},
+    line_index::LineIndex,
+    lsp::{from_proto, to_proto::text_edit_vec, utils::apply_document_changes},
     lsp_ext::{self, RunFlycheckParams},
     mem_docs::DocumentData,
     reload,
@@ -109,6 +111,47 @@ pub(crate) fn handle_did_change_text_document(
             state.vfs.write().0.set_file_contents(path, Some(new_contents));
         }
     }
+    Ok(())
+}
+
+pub(crate) fn handle_did_create_file(
+    state: &mut GlobalState,
+    params: lsp_types::CreateFilesParams,
+) -> anyhow::Result<()> {
+    let _p = tracing::span!(tracing::Level::INFO, "handle_did_create_file").entered();
+
+    let p = params.files.first().ok_or(anyhow::anyhow!("Option was None"))?;
+
+    let url = Url::parse(&params.files.first().unwrap().uri)?;
+    let file_id = url_to_file_id(&state.vfs.read().0, &url)?;
+    let source_change = state.analysis_host.analysis().add_new_file_to_mod(file_id)?;
+
+    if let Some(source_change) = source_change {
+        let text_edit = source_change.source_file_edits.values().next().unwrap();
+        let mod_file_id = source_change.source_file_edits.keys().next().unwrap();
+
+        let mut hash_map = HashMap::new();
+// 
+        let endings = state.vfs.read().1[mod_file_id];
+        let index = state.analysis_host.analysis().file_line_index(mod_file_id.clone())?;
+        let line_index = LineIndex { index, endings, encoding: state.config.position_encoding() };
+
+        let q = text_edit_vec(&line_index, text_edit.0.clone());
+
+        let file_id_to_url = file_id_to_url(&state.vfs.read().0, mod_file_id.clone());
+        hash_map.insert(file_id_to_url, q);
+
+        let a = ApplyWorkspaceEditParams {
+            label: Some("Add the new file to mod".to_string()),
+            edit: WorkspaceEdit {
+                changes: Some(hash_map),
+                document_changes: None,
+                change_annotations: None,
+            },
+        };
+        state.send_request::<lsp_types::request::ApplyWorkspaceEdit>(a, |_, _| ());
+    }
+
     Ok(())
 }
 

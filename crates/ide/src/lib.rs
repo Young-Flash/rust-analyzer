@@ -718,6 +718,13 @@ impl Analysis {
         self.with_db(|db| rename::will_rename_file(db, file_id, new_name_stem))
     }
 
+    pub fn add_new_file_to_mod(&self, file_id: FileId) -> Cancellable<Option<SourceChange>> {
+        self.with_db(|db| {
+            let fixes = ide_diagnostics::unlinked_file::fixes(db, file_id);
+            fixes.map_or(None, |f| f.first().map_or(None, |fix| fix.source_change.clone()))
+        })
+    }
+
     pub fn structural_search_replace(
         &self,
         query: &str,

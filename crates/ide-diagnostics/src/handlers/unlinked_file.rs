@@ -28,7 +28,8 @@ pub(crate) fn unlinked_file(
 ) {
     // Limit diagnostic to the first few characters in the file. This matches how VS Code
     // renders it with the full span, but on other editors, and is less invasive.
-    let fixes = fixes(ctx, file_id);
+    let db = ctx.sema.db;
+    let fixes = fixes(db, file_id);
     // FIXME: This is a hack for the vscode extension to notice whether there is an autofix or not before having to resolve diagnostics.
     // This is to prevent project linking popups from appearing when there is an autofix. https://github.com/rust-lang/rust-analyzer/issues/14523
     let message = if fixes.is_none() {
@@ -37,8 +38,8 @@ pub(crate) fn unlinked_file(
         "file not included in module tree"
     };
 
-    let range = ctx.sema.db.parse(file_id).syntax_node().text_range();
-    let range = FileLoader::file_text(ctx.sema.db, file_id)
+    let range = db.parse(file_id).syntax_node().text_range();
+    let range = FileLoader::file_text(db, file_id)
         .char_indices()
         .take(3)
         .last()
@@ -56,11 +57,11 @@ pub(crate) fn unlinked_file(
     );
 }
 
-fn fixes(ctx: &DiagnosticsContext<'_>, file_id: FileId) -> Option<Vec<Assist>> {
+pub fn fixes(db: &RootDatabase, file_id: FileId) -> Option<Vec<Assist>> {
     // If there's an existing module that could add `mod` or `pub mod` items to include the unlinked file,
     // suggest that as a fix.
 
-    let source_root = ctx.sema.db.source_root(ctx.sema.db.file_source_root(file_id));
+    let source_root = db.source_root(db.file_source_root(file_id));
     let our_path = source_root.path_for_file(&file_id)?;
     let parent = our_path.parent()?;
     let (module_name, _) = our_path.name_and_extension()?;
@@ -75,8 +76,8 @@ fn fixes(ctx: &DiagnosticsContext<'_>, file_id: FileId) -> Option<Vec<Assist>> {
     };
 
     // check crate roots, i.e. main.rs, lib.rs, ...
-    'crates: for &krate in &*ctx.sema.db.relevant_crates(file_id) {
-        let crate_def_map = ctx.sema.db.crate_def_map(krate);
+    'crates: for &krate in &*db.relevant_crates(file_id) {
+        let crate_def_map = db.crate_def_map(krate);
 
         let root_module = &crate_def_map[DefMap::ROOT];
         let Some(root_file_id) = root_module.origin.file_id() else { continue };
@@ -101,10 +102,9 @@ fn fixes(ctx: &DiagnosticsContext<'_>, file_id: FileId) -> Option<Vec<Assist>> {
             }
         }
 
-        let InFile { file_id: parent_file_id, value: source } =
-            current.definition_source(ctx.sema.db);
+        let InFile { file_id: parent_file_id, value: source } = current.definition_source(db);
         let parent_file_id = parent_file_id.file_id()?;
-        return make_fixes(ctx.sema.db, parent_file_id, source, &module_name, file_id);
+        return make_fixes(db, parent_file_id, source, &module_name, file_id);
     }
 
     // if we aren't adding to a crate root, walk backwards such that we support `#[path = ...]` overrides if possible
@@ -121,8 +121,8 @@ fn fixes(ctx: &DiagnosticsContext<'_>, file_id: FileId) -> Option<Vec<Assist>> {
             paths.into_iter().find_map(|path| source_root.file_for_path(&path))
         })?;
     stack.pop();
-    'crates: for &krate in ctx.sema.db.relevant_crates(parent_id).iter() {
-        let crate_def_map = ctx.sema.db.crate_def_map(krate);
+    'crates: for &krate in db.relevant_crates(parent_id).iter() {
+        let crate_def_map = db.crate_def_map(krate);
         let Some((_, module)) = crate_def_map.modules().find(|(_, module)| {
             module.origin.file_id() == Some(parent_id) && !module.origin.is_inline()
         }) else {
@@ -131,9 +131,9 @@ fn fixes(ctx: &DiagnosticsContext<'_>, file_id: FileId) -> Option<Vec<Assist>> {
 
         if stack.is_empty() {
             return make_fixes(
-                ctx.sema.db,
+                db,
                 parent_id,
-                module.definition_source(ctx.sema.db).value,
+                module.definition_source(db).value,
                 &module_name,
                 file_id,
             );
@@ -152,10 +152,9 @@ fn fixes(ctx: &DiagnosticsContext<'_>, file_id: FileId) -> Option<Vec<Assist>> {
                     continue 'crates;
                 }
             }
-            let InFile { file_id: parent_file_id, value: source } =
-                current.definition_source(ctx.sema.db);
+            let InFile { file_id: parent_file_id, value: source } = current.definition_source(db);
             let parent_file_id = parent_file_id.file_id()?;
-            return make_fixes(ctx.sema.db, parent_file_id, source, &module_name, file_id);
+            return make_fixes(db, parent_file_id, source, &module_name, file_id);
         }
     }
 

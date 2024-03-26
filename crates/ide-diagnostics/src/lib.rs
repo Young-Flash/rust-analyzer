@@ -70,9 +70,11 @@ mod handlers {
     // The handlers below are unusual, the implement the diagnostics as well.
     pub(crate) mod field_shorthand;
     pub(crate) mod json_is_not_rust;
-    pub(crate) mod unlinked_file;
+    pub mod unlinked_file;
     pub(crate) mod useless_braces;
 }
+
+pub use handlers::unlinked_file;
 
 #[cfg(test)]
 mod tests;
