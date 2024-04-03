@@ -1311,6 +1311,30 @@ fn hover_for_param_edge() {
 }
 
 #[test]
+fn hover_for_edge() {
+    check(
+        r#"
+pub struct Point<T> {
+    pub data: T,
+}
+// 
+fn main() {
+    let p = Point { data: 1 };
+    let _ = &p.$0data.to_string();
+}
+        "#,
+        expect![[r#"
+            *foo*
+
+            ```rust
+            // size = 4, align = 4
+            foo: i32
+            ```
+        "#]],
+    )
+}
+
+#[test]
 fn hover_for_param_with_multiple_traits() {
     check(
         r#"

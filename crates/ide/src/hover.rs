@@ -381,12 +381,23 @@ pub(crate) fn hover_for_definition(
         _ => None,
     };
 
+    // sema.resolve_field(field);
+
     let db = sema.db;
     let def_ty = match def {
         Definition::Local(it) => Some(it.ty(db)),
         Definition::GenericParam(hir::GenericParam::ConstParam(it)) => Some(it.ty(db)),
         Definition::GenericParam(hir::GenericParam::TypeParam(it)) => Some(it.ty(db)),
-        Definition::Field(field) => Some(field.ty(db)),
+        Definition::Field(field) => {
+            match field.source(db).unwrap().value {
+                hir::FieldSource::Named(f) => {
+                    let t = ast::FieldExpr::cast(f.syntax());
+                    let t = ast::FieldExpr::cast(f.syntax());
+                },
+                hir::FieldSource::Pos(_) => todo!(),
+            }
+            Some(field.ty(db))
+        },
         Definition::TupleField(it) => Some(it.ty(db)),
         Definition::Function(it) => Some(it.ty(db)),
         Definition::Adt(it) => Some(it.ty(db)),

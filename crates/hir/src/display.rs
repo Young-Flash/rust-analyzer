@@ -272,6 +272,13 @@ impl HirDisplay for Field {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         write_visibility(self.parent.module(f.db).id, self.visibility(f.db), f)?;
         write!(f, "{}: ", self.name(f.db).display(f.db.upcast()))?;
+        let t = self.ty(f.db);
+        let ta = self.ty_with_args(f.db, t.type_arguments());
+        // f.db.field_types(self.id);
+        // f.db.in
+        let n = self.name(f.db).to_smol_str().as_str();
+        let tt = t.display(f.db).to_string();
+        let tta = ta.display(f.db).to_string();
         self.ty(f.db).hir_fmt(f)
     }
 }
