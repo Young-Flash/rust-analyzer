@@ -38,7 +38,8 @@
       "args": [
         "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}/editors/code",
-        "--log rust-lang.rust-analyzer:debug"
+        "--log rust-lang.rust-analyzer:debug",
+        "/Users/flash/projects/rust_test"
       ],
       "outFiles": [
         "${workspaceFolder}/editors/code/out/**/*.js"

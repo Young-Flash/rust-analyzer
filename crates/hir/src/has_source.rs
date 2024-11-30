@@ -58,6 +58,11 @@ impl Module {
         }
     }
 
+    /// Does this function have `#[cfg(test)]` attribute?
+    pub fn is_test(self, db: &dyn HirDatabase) -> bool {
+        db.attrs(self.id.into()).is_test()
+    }
+
     pub fn as_source_file_id(self, db: &dyn HirDatabase) -> Option<EditionedFileId> {
         let def_map = self.id.def_map(db.upcast());
         match def_map[self.id.local_id].origin {

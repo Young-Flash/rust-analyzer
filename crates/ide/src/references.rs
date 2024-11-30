@@ -353,6 +353,13 @@ fn func() {
     test_func$0();
 }
 
+#[cfg(test)]
+mod a {
+    fn b() {
+        test_func();
+    }
+}
+
 #[test]
 fn test() {
     test_func();

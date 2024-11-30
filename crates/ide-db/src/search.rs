@@ -1356,8 +1356,28 @@ fn is_name_ref_in_import(name_ref: &ast::NameRef) -> bool {
 }
 
 fn is_name_ref_in_test(sema: &Semantics<'_, RootDatabase>, name_ref: &ast::NameRef) -> bool {
-    name_ref.syntax().ancestors().any(|node| match ast::Fn::cast(node) {
-        Some(it) => sema.to_def(&it).map_or(false, |func| func.is_test(sema.db)),
-        None => false,
+    name_ref.syntax().ancestors().any(|node| {
+        let a = match ast::Fn::cast(node.clone()) {
+            Some(it) => {
+                let a = it.syntax().to_string();
+                // println!("a: {:?}", a);
+                // dbg!(a);
+                sema.to_def(&it).map_or(false, |func| func.is_test(sema.db))
+            },
+            None => false,
+        };
+        let b = match ast::Module::cast(node.clone()) {
+            Some(it) => {
+                let o = ast::HasAttrs::attrs(&it);
+                let c = it.syntax().to_string();
+                // println!("c: {:?}", c);
+                let def = sema.to_def(&it);
+                
+                let d = def.map_or(false, |module| module.is_test(sema.db));
+                d
+            },
+            None => false,
+        };
+        a || b
     })
 }
