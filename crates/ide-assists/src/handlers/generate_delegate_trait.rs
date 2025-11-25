@@ -14,7 +14,7 @@ use ide_db::{
 };
 use itertools::Itertools;
 use syntax::{
-    AstNode, Edition, NodeOrToken, SmolStr, SyntaxKind, ToSmolStr,
+    AstNode, Edition, SmolStr, SyntaxKind, ToSmolStr,
     ast::{
         self, AssocItem, GenericArgList, GenericParamList, HasAttrs, HasGenericArgs,
         HasGenericParams, HasName, HasTypeBounds, HasVisibility as astHasVisibility, Path,
@@ -22,7 +22,6 @@ use syntax::{
         edit::{self, AstNodeEdit},
         make,
     },
-    ted::{self, Position},
 };
 
 // Assist: generate_delegate_trait
@@ -494,23 +493,8 @@ fn remove_useless_where_clauses(trait_ty: &ast::Type, self_ty: &ast::Type, wc: a
     wc.predicates().filter(has_live_generics).for_each(|pred| wc.remove_predicate(pred));
 
     if wc.predicates().count() == 0 {
-        // Remove useless whitespaces
-        [syntax::Direction::Prev, syntax::Direction::Next]
-            .into_iter()
-            .flat_map(|dir| {
-                wc.syntax()
-                    .siblings_with_tokens(dir)
-                    .skip(1)
-                    .take_while(|node_or_tok| node_or_tok.kind() == SyntaxKind::WHITESPACE)
-            })
-            .for_each(ted::remove);
-
-        ted::insert(
-            ted::Position::after(wc.syntax()),
-            NodeOrToken::Token(make::token(SyntaxKind::WHITESPACE)),
-        );
-        // Remove where clause
-        ted::remove(wc.syntax());
+        // Remove where clause by detaching it from the tree
+        wc.syntax().detach();
     }
 }
 
@@ -709,26 +693,11 @@ fn func_assoc_item(
                     ast::SelfParamKind::MutRef => make::expr_ref(self_kw, true),
                 };
 
-                let param_count = l.params().count();
-                let args = convert_param_list_to_arg_list(l).clone_for_update();
-                let pos_after_l_paren = Position::after(args.l_paren_token()?);
-                if param_count > 0 {
-                    // Add SelfParam and a TOKEN::COMMA
-                    ted::insert_all_raw(
-                        pos_after_l_paren,
-                        vec![
-                            NodeOrToken::Node(tail_expr_self.syntax().clone_for_update()),
-                            NodeOrToken::Token(make::token(SyntaxKind::COMMA)),
-                            NodeOrToken::Token(make::token(SyntaxKind::WHITESPACE)),
-                        ],
-                    );
-                } else {
-                    // Add SelfParam only
-                    ted::insert_raw(
-                        pos_after_l_paren,
-                        NodeOrToken::Node(tail_expr_self.syntax().clone_for_update()),
-                    );
-                }
+                // Build argument list with self expression prepended
+                let other_args = convert_param_list_to_arg_list(l);
+                let all_args: Vec<ast::Expr> =
+                    std::iter::once(tail_expr_self).chain(other_args.args()).collect();
+                let args = make::arg_list(all_args);
 
                 make::expr_call(make::expr_path(qualified_path), args)
             }
