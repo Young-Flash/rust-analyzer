@@ -1393,6 +1393,129 @@ impl SyntaxFactory {
 
         self.ty_path(path)
     }
+
+    pub fn path_from_text(&self, text: &str) -> ast::Path {
+        make::path_from_text(text).clone_for_update()
+    }
+
+    pub fn expr_field(&self, receiver: ast::Expr, field: &str) -> ast::FieldExpr {
+        let ast::Expr::FieldExpr(ast) =
+            make::expr_field(receiver.clone(), field).clone_for_update()
+        else {
+            unreachable!()
+        };
+
+        if let Some(mut mapping) = self.mappings() {
+            let mut builder = SyntaxMappingBuilder::new(ast.syntax().clone());
+            builder.map_node(receiver.syntax().clone(), ast.expr().unwrap().syntax().clone());
+            builder.finish(&mut mapping);
+        }
+
+        ast
+    }
+
+    pub fn impl_trait(
+        &self,
+        attrs: impl IntoIterator<Item = ast::Attr>,
+        is_unsafe: bool,
+        trait_gen_params: Option<ast::GenericParamList>,
+        trait_gen_args: Option<ast::GenericArgList>,
+        type_gen_params: Option<ast::GenericParamList>,
+        type_gen_args: Option<ast::GenericArgList>,
+        is_negative: bool,
+        path_type: ast::Type,
+        ty: ast::Type,
+        trait_where_clause: Option<ast::WhereClause>,
+        ty_where_clause: Option<ast::WhereClause>,
+        body: Option<ast::AssocItemList>,
+    ) -> ast::Impl {
+        make::impl_trait(
+            attrs,
+            is_unsafe,
+            trait_gen_params,
+            trait_gen_args,
+            type_gen_params,
+            type_gen_args,
+            is_negative,
+            path_type,
+            ty,
+            trait_where_clause,
+            ty_where_clause,
+            body,
+        )
+        .clone_for_update()
+    }
+
+    pub fn ty_alias(
+        &self,
+        attrs: impl IntoIterator<Item = ast::Attr>,
+        ident: &str,
+        generic_param_list: Option<ast::GenericParamList>,
+        type_param_bounds: Option<ast::TypeParam>,
+        where_clause: Option<ast::WhereClause>,
+        assignment: Option<(ast::Type, Option<ast::WhereClause>)>,
+    ) -> ast::TypeAlias {
+        make::ty_alias(
+            attrs,
+            ident,
+            generic_param_list,
+            type_param_bounds,
+            where_clause,
+            assignment,
+        )
+        .clone_for_update()
+    }
+
+    pub fn param_list(
+        &self,
+        self_param: Option<ast::SelfParam>,
+        params: impl IntoIterator<Item = ast::Param>,
+    ) -> ast::ParamList {
+        let (params, input) = iterator_input(params);
+        let ast = make::param_list(self_param.clone(), params).clone_for_update();
+
+        if let Some(mut mapping) = self.mappings() {
+            let mut builder = SyntaxMappingBuilder::new(ast.syntax().clone());
+            if let Some(self_param) = self_param {
+                if let Some(new_self_param) = ast.self_param() {
+                    builder.map_node(self_param.syntax().clone(), new_self_param.syntax().clone());
+                }
+            }
+            builder.map_children(input, ast.params().map(|p| p.syntax().clone()));
+            builder.finish(&mut mapping);
+        }
+
+        ast
+    }
+
+    pub fn const_param(&self, name: ast::Name, ty: ast::Type) -> ast::ConstParam {
+        let ast = make::const_param(name.clone(), ty.clone()).clone_for_update();
+
+        if let Some(mut mapping) = self.mappings() {
+            let mut builder = SyntaxMappingBuilder::new(ast.syntax().clone());
+            builder.map_node(name.syntax().clone(), ast.name().unwrap().syntax().clone());
+            builder.map_node(ty.syntax().clone(), ast.ty().unwrap().syntax().clone());
+            builder.finish(&mut mapping);
+        }
+
+        ast
+    }
+
+    pub fn generic_param_list(
+        &self,
+        params: impl IntoIterator<Item = ast::GenericParam>,
+    ) -> ast::GenericParamList {
+        let (params, input) = iterator_input(params);
+        let ast = make::generic_param_list(params).clone_for_update();
+
+        if let Some(mut mapping) = self.mappings() {
+            let mut builder = SyntaxMappingBuilder::new(ast.syntax().clone());
+            builder.map_children(input, ast.generic_params().map(|p| p.syntax().clone()));
+            builder.finish(&mut mapping);
+        }
+
+        ast
+    }
 }
 
 // We need to collect `input` here instead of taking `impl IntoIterator + Clone`,

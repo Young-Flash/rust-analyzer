@@ -20,7 +20,7 @@ use syntax::{
         HasGenericParams, HasName, HasTypeBounds, HasVisibility as astHasVisibility, Path,
         WherePred,
         edit::{self, AstNodeEdit},
-        make,
+        syntax_factory::SyntaxFactory,
     },
 };
 
@@ -253,9 +253,10 @@ fn generate_impl(
     delegee: &Delegee,
     edition: Edition,
 ) -> Option<ast::Impl> {
+    let make = SyntaxFactory::without_mappings();
     let db = ctx.db();
     let ast_strukt = &strukt.strukt;
-    let strukt_ty = make::ty_path(make::ext::ident_path(&strukt.name.to_string()));
+    let strukt_ty: ast::Type = make.ty_path(make.ident_path(&strukt.name.to_string())).into();
     let strukt_params = ast_strukt.generic_param_list();
 
     match delegee {
@@ -263,25 +264,24 @@ fn generate_impl(
             let bound_def = ctx.sema.source(delegee.to_owned())?.value;
             let bound_params = bound_def.generic_param_list();
 
-            let delegate = make::impl_trait(
-                None,
+            let delegate = make.impl_trait(
+                None::<ast::Attr>,
                 delegee.is_unsafe(db),
                 bound_params.clone(),
                 bound_params.map(|params| params.to_generic_args()),
                 strukt_params.clone(),
                 strukt_params.map(|params| params.to_generic_args()),
                 delegee.is_auto(db),
-                make::ty(&delegee.name(db).display_no_db(edition).to_smolstr()),
+                make.ty(&delegee.name(db).display_no_db(edition).to_smolstr()),
                 strukt_ty,
                 bound_def.where_clause(),
                 ast_strukt.where_clause(),
                 None,
-            )
-            .clone_for_update();
+            );
 
             // Goto link : https://doc.rust-lang.org/reference/paths.html#qualified-paths
             let qualified_path_type =
-                make::path_from_text(&format!("<{} as {}>", field_ty, delegate.trait_()?));
+                make.path_from_text(&format!("<{} as {}>", field_ty, delegate.trait_()?));
 
             let delegate_assoc_items = delegate.get_or_create_assoc_item_list();
             if let Some(ai) = bound_def.assoc_item_list() {
@@ -373,12 +373,11 @@ fn generate_impl(
             });
 
             let type_gen_args = strukt_params.clone().map(|params| params.to_generic_args());
-            let path_type =
-                make::ty(&trait_.name(db).display_no_db(edition).to_smolstr()).clone_for_update();
+            let path_type = make.ty(&trait_.name(db).display_no_db(edition).to_smolstr());
             let path_type = transform_impl(ctx, ast_strukt, &old_impl, &transform_args, path_type)?;
             // 3) Generate delegate trait impl
-            let delegate = make::impl_trait(
-                None,
+            let delegate = make.impl_trait(
+                None::<ast::Attr>,
                 trait_.is_unsafe(db),
                 trait_gen_params,
                 trait_gen_args,
@@ -390,11 +389,10 @@ fn generate_impl(
                 old_impl.where_clause().map(|wc| wc.clone_for_update()),
                 ty_where_clause,
                 None,
-            )
-            .clone_for_update();
+            );
             // Goto link : https://doc.rust-lang.org/reference/paths.html#qualified-paths
             let qualified_path_type =
-                make::path_from_text(&format!("<{} as {}>", field_ty, delegate.trait_()?));
+                make.path_from_text(&format!("<{} as {}>", field_ty, delegate.trait_()?));
 
             // 4) Transform associated items in delegte trait impl
             let delegate_assoc_items = delegate.get_or_create_assoc_item_list();
@@ -540,7 +538,8 @@ fn generate_args_for_impl(
             )
         })
         .collect_vec();
-    args.is_empty().not().then(|| make::generic_arg_list(args))
+    let make = SyntaxFactory::without_mappings();
+    args.is_empty().not().then(|| make.generic_arg_list(args, false))
 }
 
 fn rename_strukt_args<N>(
@@ -578,7 +577,8 @@ fn resolve_name_conflicts(
 ) -> Option<ast::GenericParamList> {
     match (strukt_params, old_impl_params) {
         (Some(old_strukt_params), Some(old_impl_params)) => {
-            let params = make::generic_param_list(std::iter::empty()).clone_for_update();
+            let make = SyntaxFactory::without_mappings();
+            let params = make.generic_param_list(std::iter::empty());
 
             for old_strukt_param in old_strukt_params.generic_params() {
                 // Get old name from `strukt`
@@ -607,10 +607,8 @@ fn resolve_name_conflicts(
                 match old_strukt_param {
                     ast::GenericParam::ConstParam(c) => {
                         if let Some(const_ty) = c.ty() {
-                            let const_param = make::const_param(make::name(&name), const_ty);
-                            params.add_generic_param(ast::GenericParam::ConstParam(
-                                const_param.clone_for_update(),
-                            ));
+                            let const_param = make.const_param(make.name(&name), const_ty);
+                            params.add_generic_param(ast::GenericParam::ConstParam(const_param));
                         }
                     }
                     p @ ast::GenericParam::LifetimeParam(_) => {
@@ -618,10 +616,8 @@ fn resolve_name_conflicts(
                     }
                     ast::GenericParam::TypeParam(t) => {
                         let type_bounds = t.type_bound_list();
-                        let type_param = make::type_param(make::name(&name), type_bounds);
-                        params.add_generic_param(ast::GenericParam::TypeParam(
-                            type_param.clone_for_update(),
-                        ));
+                        let type_param = make.type_param(make.name(&name), type_bounds);
+                        params.add_generic_param(ast::GenericParam::TypeParam(type_param));
                     }
                 }
             }
@@ -650,7 +646,8 @@ fn process_assoc_item(
 }
 
 fn const_assoc_item(item: syntax::ast::Const, qual_path_ty: ast::Path) -> Option<AssocItem> {
-    let path_expr_segment = make::path_from_text(item.name()?.to_string().as_str());
+    let make = SyntaxFactory::without_mappings();
+    let path_expr_segment = make.path_from_text(item.name()?.to_string().as_str());
 
     // We want rhs of the const assignment to be a qualified path
     // The general case for const assignment can be found [here](`https://doc.rust-lang.org/reference/items/constant-items.html`)
@@ -658,15 +655,14 @@ fn const_assoc_item(item: syntax::ast::Const, qual_path_ty: ast::Path) -> Option
     // <Base as Trait<GenArgs>>::ConstName;
     // FIXME : We can't rely on `make::path_qualified` for now but it would be nice to replace the following with it.
     // make::path_qualified(qual_path_ty, path_expr_segment.as_single_segment().unwrap());
-    let qualified_path = qualified_path(qual_path_ty, path_expr_segment);
-    let inner = make::item_const(
+    let qualified_path = qualified_path(&make, qual_path_ty, path_expr_segment);
+    let inner = make.item_const(
         item.attrs(),
         item.visibility(),
         item.name()?,
         item.ty()?,
-        make::expr_path(qualified_path),
-    )
-    .clone_for_update();
+        make.expr_path(qualified_path),
+    );
 
     Some(AssocItem::Const(inner))
 }
@@ -676,44 +672,46 @@ fn func_assoc_item(
     qual_path_ty: Path,
     base_name: &str,
 ) -> Option<AssocItem> {
-    let path_expr_segment = make::path_from_text(item.name()?.to_string().as_str());
-    let qualified_path = qualified_path(qual_path_ty, path_expr_segment);
+    let make = SyntaxFactory::without_mappings();
+    let path_expr_segment = make.path_from_text(item.name()?.to_string().as_str());
+    let qualified_path = qualified_path(&make, qual_path_ty, path_expr_segment);
 
     let call = match item.param_list() {
         // Methods and funcs should be handled separately.
         // We ask if the func has a `self` param.
         Some(l) => match l.self_param() {
             Some(slf) => {
-                let mut self_kw = make::expr_path(make::path_from_text("self"));
-                self_kw = make::expr_field(self_kw, base_name);
+                let self_kw = make.expr_path(make.path_from_text("self"));
+                let self_kw: ast::Expr = make.expr_field(self_kw, base_name).into();
 
                 let tail_expr_self = match slf.kind() {
                     ast::SelfParamKind::Owned => self_kw,
-                    ast::SelfParamKind::Ref => make::expr_ref(self_kw, false),
-                    ast::SelfParamKind::MutRef => make::expr_ref(self_kw, true),
+                    ast::SelfParamKind::Ref => make.expr_ref(self_kw, false),
+                    ast::SelfParamKind::MutRef => make.expr_ref(self_kw, true),
                 };
 
                 // Build argument list with self expression prepended
                 let other_args = convert_param_list_to_arg_list(l);
                 let all_args: Vec<ast::Expr> =
                     std::iter::once(tail_expr_self).chain(other_args.args()).collect();
-                let args = make::arg_list(all_args);
+                let args = make.arg_list(all_args);
 
-                make::expr_call(make::expr_path(qualified_path), args)
+                make.expr_call(make.expr_path(qualified_path), args).into()
             }
-            None => {
-                make::expr_call(make::expr_path(qualified_path), convert_param_list_to_arg_list(l))
-            }
+            None => make
+                .expr_call(make.expr_path(qualified_path), convert_param_list_to_arg_list(l))
+                .into(),
         },
-        None => make::expr_call(
-            make::expr_path(qualified_path),
-            convert_param_list_to_arg_list(make::param_list(None, Vec::new())),
-        ),
-    }
-    .clone_for_update();
+        None => make
+            .expr_call(
+                make.expr_path(qualified_path),
+                convert_param_list_to_arg_list(make.param_list(None, Vec::new())),
+            )
+            .into(),
+    };
 
-    let body = make::block_expr(vec![], Some(call.into())).clone_for_update();
-    let func = make::fn_(
+    let body = make.block_expr(vec![], Some(call));
+    let func = make.fn_(
         item.attrs(),
         item.visibility(),
         item.name()?,
@@ -726,33 +724,38 @@ fn func_assoc_item(
         item.const_token().is_some(),
         item.unsafe_token().is_some(),
         item.gen_token().is_some(),
-    )
-    .clone_for_update();
+    );
 
     Some(AssocItem::Fn(func.indent(edit::IndentLevel(1))))
 }
 
 fn ty_assoc_item(item: syntax::ast::TypeAlias, qual_path_ty: Path) -> Option<AssocItem> {
-    let path_expr_segment = make::path_from_text(item.name()?.to_string().as_str());
-    let qualified_path = qualified_path(qual_path_ty, path_expr_segment);
-    let ty = make::ty_path(qualified_path);
+    let make = SyntaxFactory::without_mappings();
+    let path_expr_segment = make.path_from_text(item.name()?.to_string().as_str());
+    let qualified_path = qualified_path(&make, qual_path_ty, path_expr_segment);
+    let ty: ast::Type = make.ty_path(qualified_path).into();
     let ident = item.name()?.to_string();
 
-    let alias = make::ty_alias(
-        item.attrs(),
-        ident.as_str(),
-        item.generic_param_list(),
-        None,
-        item.where_clause(),
-        Some((ty, None)),
-    )
-    .indent(edit::IndentLevel(1));
+    let alias = make
+        .ty_alias(
+            item.attrs(),
+            ident.as_str(),
+            item.generic_param_list(),
+            None,
+            item.where_clause(),
+            Some((ty, None)),
+        )
+        .indent(edit::IndentLevel(1));
 
     Some(AssocItem::TypeAlias(alias))
 }
 
-fn qualified_path(qual_path_ty: ast::Path, path_expr_seg: ast::Path) -> ast::Path {
-    make::path_from_text(&format!("{qual_path_ty}::{path_expr_seg}"))
+fn qualified_path(
+    make: &SyntaxFactory,
+    qual_path_ty: ast::Path,
+    path_expr_seg: ast::Path,
+) -> ast::Path {
+    make.path_from_text(&format!("{qual_path_ty}::{path_expr_seg}"))
 }
 
 #[cfg(test)]
