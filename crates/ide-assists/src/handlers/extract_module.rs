@@ -10,16 +10,16 @@ use ide_db::{
 use itertools::Itertools;
 use smallvec::SmallVec;
 use syntax::{
-    AstNode,
+    AstNode, SyntaxElement,
     SyntaxKind::{self, WHITESPACE},
     SyntaxNode, TextRange, TextSize,
     algo::find_node_at_range,
     ast::{
-        self, HasVisibility,
+        self, HasAttrs, HasGenericParams, HasVisibility,
         edit::{AstNodeEdit, IndentLevel},
         syntax_factory::SyntaxFactory,
     },
-    match_ast, ted,
+    match_ast,
 };
 
 use crate::{AssistContext, Assists};
@@ -197,8 +197,14 @@ fn generate_module_def(
             .map(|it| it.indent(IndentLevel(1)))
             .collect_vec();
         let assoc_item_list = make.assoc_item_list(assoc_items);
-        let impl_ = impl_.reset_indent();
-        ted::replace(impl_.get_or_create_assoc_item_list().syntax(), assoc_item_list.syntax());
+        let impl_ = make.impl_(
+            impl_.attrs(),
+            impl_.generic_param_list(),
+            self_ty.generic_arg_list(),
+            self_ty.clone(),
+            impl_.where_clause(),
+            Some(assoc_item_list),
+        );
         // Add the import for enum/struct corresponding to given impl block
         let use_impl = make_use_stmt_of_node_with_super(&make, self_ty.syntax());
         once(use_impl)
@@ -389,15 +395,18 @@ impl Module {
                         let use_ = use_stmts_to_be_inserted
                             .entry(use_.syntax().text_range().start())
                             .or_insert_with(|| use_.clone_subtree().clone_for_update());
+                        let make = SyntaxFactory::without_mappings();
                         for seg in use_
                             .syntax()
                             .descendants()
                             .filter_map(ast::NameRef::cast)
                             .filter(|seg| seg.syntax().to_string() == name_ref.to_string())
+                            .collect_vec()
                         {
-                            let make = SyntaxFactory::without_mappings();
-                            let new_ref = make.path_from_text(&format!("{mod_name}::{seg}"));
-                            ted::replace(seg.syntax().parent()?, new_ref.syntax());
+                            if let Some(parent) = seg.syntax().parent() {
+                                let new_ref = make.path_from_text(&format!("{mod_name}::{seg}"));
+                                replace_node(&parent, new_ref.syntax());
+                            }
                         }
                     }
                 }
@@ -822,8 +831,30 @@ fn add_change_vis(vis: Option<ast::Visibility>, node_or_token_opt: Option<syntax
     {
         let make = SyntaxFactory::without_mappings();
         let pub_crate_vis = make.visibility_pub_crate();
-        ted::insert(ted::Position::before(node_or_token), pub_crate_vis.syntax());
+        // Insert visibility and a trailing space
+        let parent = node_or_token.parent().expect("element must have a parent");
+        let index = node_or_token.index();
+        let space = ast::make::tokens::single_space();
+        parent.splice_children(
+            index..index,
+            vec![pub_crate_vis.syntax().clone().into(), space.into()],
+        );
     }
+}
+
+/// Insert an element before another element in a mutable tree.
+#[allow(dead_code)]
+fn insert_before(before: &SyntaxElement, elem: &SyntaxNode) {
+    let parent = before.parent().expect("element must have a parent");
+    let index = before.index();
+    parent.splice_children(index..index, vec![elem.clone().into()]);
+}
+
+/// Replace a node in a mutable tree.
+fn replace_node(old: &SyntaxNode, new: &SyntaxNode) {
+    let parent = old.parent().expect("node must have a parent");
+    let index = old.index();
+    parent.splice_children(index..index + 1, vec![new.clone().into()]);
 }
 
 fn indent_range_before_given_node(node: &SyntaxNode) -> Option<TextRange> {

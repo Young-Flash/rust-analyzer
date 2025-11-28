@@ -1441,6 +1441,19 @@ impl SyntaxFactory {
         ast
     }
 
+    pub fn impl_(
+        &self,
+        attrs: impl IntoIterator<Item = ast::Attr>,
+        generic_params: Option<ast::GenericParamList>,
+        generic_args: Option<ast::GenericArgList>,
+        path_type: ast::Type,
+        where_clause: Option<ast::WhereClause>,
+        body: Option<ast::AssocItemList>,
+    ) -> ast::Impl {
+        make::impl_(attrs, generic_params, generic_args, path_type, where_clause, body)
+            .clone_for_update()
+    }
+
     pub fn impl_trait(
         &self,
         attrs: impl IntoIterator<Item = ast::Attr>,
