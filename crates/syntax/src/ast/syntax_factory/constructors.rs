@@ -1398,6 +1398,33 @@ impl SyntaxFactory {
         make::path_from_text(text).clone_for_update()
     }
 
+    pub fn join_paths(&self, paths: impl IntoIterator<Item = ast::Path>) -> ast::Path {
+        make::join_paths(paths).clone_for_update()
+    }
+
+    pub fn item_list(&self, items: impl IntoIterator<Item = ast::Item>) -> ast::ItemList {
+        let items: Vec<_> = items.into_iter().collect();
+        let items_opt = if items.is_empty() { None } else { Some(items) };
+        make::item_list(items_opt).clone_for_update()
+    }
+
+    pub fn assoc_item_list(
+        &self,
+        items: impl IntoIterator<Item = ast::AssocItem>,
+    ) -> ast::AssocItemList {
+        let items: Vec<_> = items.into_iter().collect();
+        let items_opt = if items.is_empty() { None } else { Some(items) };
+        make::assoc_item_list(items_opt).clone_for_update()
+    }
+
+    pub fn mod_(&self, name: ast::Name, body: Option<ast::ItemList>) -> ast::Module {
+        make::mod_(name, body).clone_for_update()
+    }
+
+    pub fn visibility_pub_crate(&self) -> ast::Visibility {
+        make::visibility_pub_crate().clone_for_update()
+    }
+
     pub fn expr_field(&self, receiver: ast::Expr, field: &str) -> ast::FieldExpr {
         let ast::Expr::FieldExpr(ast) =
             make::expr_field(receiver.clone(), field).clone_for_update()
