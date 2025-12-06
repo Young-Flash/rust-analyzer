@@ -1,8 +1,8 @@
 use ide_db::{famous_defs::FamousDefs, traits::resolve_target_trait};
 use syntax::{
-    AstNode, T,
-    ast::{self, edit_in_place::Indent, make},
-    ted,
+    AstNode, SyntaxKind, T,
+    ast::{self, edit_in_place::Indent, syntax_factory::SyntaxFactory},
+    syntax_editor::{Position, SyntaxEditor},
 };
 
 use crate::{AssistContext, AssistId, Assists};
@@ -45,7 +45,7 @@ use crate::{AssistContext, AssistId, Assists};
 // }
 // ```
 pub(crate) fn generate_mut_trait_impl(acc: &mut Assists, ctx: &AssistContext<'_>) -> Option<()> {
-    let impl_def = ctx.find_node_at_offset::<ast::Impl>()?.clone_for_update();
+    let impl_def = ctx.find_node_at_offset::<ast::Impl>()?;
     let indent = impl_def.indent_level();
 
     let ast::Type::PathType(path) = impl_def.trait_()? else {
@@ -59,44 +59,20 @@ pub(crate) fn generate_mut_trait_impl(acc: &mut Assists, ctx: &AssistContext<'_>
     let trait_ = resolve_target_trait(&ctx.sema, &impl_def)?;
     let trait_new = get_trait_mut(&trait_, famous)?;
 
-    // Index -> IndexMut
-    ted::replace(trait_name.syntax(), make::name_ref(trait_new).clone_for_update().syntax());
-
     // index -> index_mut
     let (trait_method_name, new_trait_method_name) = impl_def
         .syntax()
         .descendants()
         .filter_map(ast::Name::cast)
         .find_map(process_method_name)?;
-    ted::replace(
-        trait_method_name.syntax(),
-        make::name(new_trait_method_name).clone_for_update().syntax(),
-    );
 
-    if let Some(type_alias) = impl_def.syntax().descendants().find_map(ast::TypeAlias::cast) {
-        ted::remove(type_alias.syntax());
-    }
-
-    // &self -> &mut self
-    let mut_self_param = make::mut_self_param();
-    let self_param: ast::SelfParam =
-        impl_def.syntax().descendants().find_map(ast::SelfParam::cast)?;
-    ted::replace(self_param.syntax(), mut_self_param.clone_for_update().syntax());
-
-    // &Self::Output -> &mut Self::Output
-    let ret_type = impl_def.syntax().descendants().find_map(ast::RetType::cast)?;
-    let new_ret_type = process_ret_type(&ret_type)?;
-    ted::replace(ret_type.syntax(), make::ret_type(new_ret_type).clone_for_update().syntax());
-
-    let fn_ = impl_def.assoc_item_list()?.assoc_items().find_map(|it| match it {
-        ast::AssocItem::Fn(f) => Some(f),
+    // Ensure the impl has the required structure
+    impl_def.assoc_item_list()?.assoc_items().find_map(|it| match it {
+        ast::AssocItem::Fn(_) => Some(()),
         _ => None,
     })?;
-    let _ = process_ref_mut(&fn_);
-
-    let assoc_list = make::assoc_item_list(None).clone_for_update();
-    ted::replace(impl_def.assoc_item_list()?.syntax(), assoc_list.syntax());
-    impl_def.get_or_create_assoc_item_list().add_item(syntax::ast::AssocItem::Fn(fn_));
+    impl_def.syntax().descendants().find_map(ast::SelfParam::cast)?;
+    impl_def.syntax().descendants().find_map(ast::RetType::cast)?;
 
     let target = impl_def.syntax().text_range();
     acc.add(
@@ -104,30 +80,93 @@ pub(crate) fn generate_mut_trait_impl(acc: &mut Assists, ctx: &AssistContext<'_>
         format!("Generate `{trait_new}` impl from this `{trait_name}` trait"),
         target,
         |edit| {
+            let make = SyntaxFactory::without_mappings();
+
+            let impl_cloned = impl_def.syntax().clone_subtree();
+            let impl_cloned = ast::Impl::cast(impl_cloned).unwrap();
+            let mut editor = SyntaxEditor::new(impl_cloned.syntax().clone());
+
+            // Index -> IndexMut
+            let cloned_trait_name = impl_cloned.trait_().and_then(|t| match t {
+                ast::Type::PathType(p) => p.path()?.segment()?.name_ref(),
+                _ => None,
+            });
+            if let Some(n) = cloned_trait_name {
+                editor.replace(n.syntax(), make.name_ref(trait_new).syntax());
+            }
+
+            // index -> index_mut
+            let cloned_method_name = impl_cloned.syntax().descendants().find_map(|n| {
+                ast::Name::cast(n).filter(|name| name.text() == trait_method_name.text())
+            });
+            if let Some(n) = cloned_method_name {
+                editor.replace(n.syntax(), make.name(new_trait_method_name).syntax());
+            }
+
+            // Remove type alias
+            if let Some(ta) = impl_cloned.syntax().descendants().find_map(ast::TypeAlias::cast) {
+                if let Some(ws) = ta
+                    .syntax()
+                    .next_sibling_or_token()
+                    .and_then(|it| it.into_token())
+                    .filter(|it| it.kind() == SyntaxKind::WHITESPACE)
+                {
+                    editor.delete(ws);
+                }
+                editor.delete(ta.syntax());
+            }
+
+            // &self -> &mut self
+            let cloned_self_param =
+                impl_cloned.syntax().descendants().find_map(ast::SelfParam::cast);
+            if let Some(sp) = cloned_self_param {
+                editor.replace(sp.syntax(), make.mut_self_param().syntax());
+            }
+
+            // &Self::Output -> &mut Self::Output
+            let cloned_ret_type = impl_cloned.syntax().descendants().find_map(ast::RetType::cast);
+            if let Some(rt) = cloned_ret_type {
+                if let Some(new_rt) = process_ret_type(&make, &rt) {
+                    editor.replace(rt.syntax(), new_rt.syntax());
+                }
+            }
+
+            // &xxx -> &mut xxx (in function body)
+            let cloned_fn = impl_cloned.assoc_item_list().and_then(|l| {
+                l.assoc_items().find_map(|it| match it {
+                    ast::AssocItem::Fn(f) => Some(f),
+                    _ => None,
+                })
+            });
+            if let Some(f) = cloned_fn {
+                if let Some(ref_expr) = f.body().and_then(|b| b.tail_expr()).and_then(|e| match e {
+                    ast::Expr::RefExpr(r) if r.mut_token().is_none() => Some(r),
+                    _ => None,
+                }) {
+                    if let Some(amp) = ref_expr.amp_token() {
+                        editor.insert_all(
+                            Position::after(&amp),
+                            vec![make.token(T![mut]).into(), make.whitespace(" ").into()],
+                        );
+                    }
+                }
+            }
+
+            let edit_result = editor.finish();
+            let Some(final_impl) = ast::Impl::cast(edit_result.new_root().clone()) else {
+                return;
+            };
+
             edit.insert(
                 target.start(),
                 if ctx.config.snippet_cap.is_some() {
-                    format!("$0{impl_def}\n\n{indent}")
+                    format!("$0{final_impl}\n\n{indent}")
                 } else {
-                    format!("{impl_def}\n\n{indent}")
+                    format!("{final_impl}\n\n{indent}")
                 },
             );
         },
     )
-}
-
-fn process_ref_mut(fn_: &ast::Fn) -> Option<()> {
-    let expr = fn_.body()?.tail_expr()?;
-    match &expr {
-        ast::Expr::RefExpr(ref_expr) if ref_expr.mut_token().is_none() => {
-            ted::insert_all_raw(
-                ted::Position::after(ref_expr.amp_token()?),
-                vec![make::token(T![mut]).into(), make::tokens::whitespace(" ").into()],
-            );
-        }
-        _ => {}
-    }
-    None
 }
 
 fn get_trait_mut(apply_trait: &hir::Trait, famous: FamousDefs<'_, '_>) -> Option<&'static str> {
@@ -158,12 +197,13 @@ fn process_method_name(name: ast::Name) -> Option<(ast::Name, &'static str)> {
     Some((name, new_name))
 }
 
-fn process_ret_type(ref_ty: &ast::RetType) -> Option<ast::Type> {
-    let ty = ref_ty.ty()?;
+fn process_ret_type(make: &SyntaxFactory, ret_ty: &ast::RetType) -> Option<ast::RetType> {
+    let ty = ret_ty.ty()?;
     let ast::Type::RefType(ref_type) = ty else {
         return None;
     };
-    Some(make::ty_ref(ref_type.ty()?, true))
+    let new_ref_ty = make.ty_ref(ref_type.ty()?, true);
+    Some(make.ret_type(new_ref_ty.into()))
 }
 
 #[cfg(test)]
